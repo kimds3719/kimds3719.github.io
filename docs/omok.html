@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>오목 게임</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    table { border-collapse: collapse; margin: 20px auto; }
+    td {
+      width: 30px; height: 30px;
+      border: 1px solid #333;
+      text-align: center;
+      vertical-align: middle;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .player { color: blue; }
+    .ai { color: red; }
+    #message { text-align: center; font-size: 18px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div id="message">사용자 차례 (X)</div>
+  <table id="board"></table>
+
+<script>
+  //================ 기본 상수 및 보드 초기화 =================
+  const BOARD_SIZE = 15;
+  const EMPTY = 0, PLAYER = 1, AI = 2;
+  const WIN_COUNT = 5;
+  
+  // 2차원 배열 형태 보드 (전역 사용)
+  let board = [];
+  for (let i = 0; i < BOARD_SIZE; i++) {
+    board[i] = [];
+    for (let j = 0; j < BOARD_SIZE; j++) {
+      board[i][j] = EMPTY;
+    }
+  }
+  
+  //================ 보드 출력 함수 =================
+  function drawBoard() {
+    const $table = $("#board");
+    $table.empty();
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      let rowHTML = "<tr>";
+      for (let j = 0; j < BOARD_SIZE; j++) {
+        let cellValue = board[i][j];
+        let display = "";
+        let cls = "";
+        if (cellValue === PLAYER) {
+          display = "X";
+          cls = "player";
+        } else if (cellValue === AI) {
+          display = "O";
+          cls = "ai";
+        }
+        rowHTML += `<td data-row='${i}' data-col='${j}' class='${cls}'>${display}</td>`;
+      }
+      rowHTML += "</tr>";
+      $table.append(rowHTML);
+    }
+  }
+  
+  //================ 기본 게임 로직 함수 =================
+  function isValidMove(row, col) {
+    return row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE && board[row][col] === EMPTY;
+  }
+  
+  function makeMove(boardObj, row, col, player) {
+    boardObj[row][col] = player;
+  }
+  
+  // 주어진 위치에서 특정 방향에 대해 연속된 돌의 개수를 센다.
+  function checkDirection(boardObj, row, col, dr, dc, player) {
+    let count = 0;
+    let r = row, c = col;
+    while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && boardObj[r][c] === player) {
+      count++;
+      r += dr;
+      c += dc;
+    }
+    return count;
+  }
+  
+  // 특정 위치에 놓인 돌로 인해 승리했는지 판단
+  function isWin(boardObj, row, col, player) {
+    const directions = [
+      { dr: 0, dc: 1 },
+      { dr: 1, dc: 0 },
+      { dr: 1, dc: 1 },
+      { dr: 1, dc: -1 }
+    ];
+    for (let { dr, dc } of directions) {
+      const count = checkDirection(boardObj, row, col, dr, dc, player) +
+                    checkDirection(boardObj, row, col, -dr, -dc, player) - 1;
+      if (count >= WIN_COUNT) return true;
+    }
+    return false;
+  }
+  
+  // 현재 보드 상태에서 후보수(돌 근처 빈 칸 후보) 생성
+  function getAllPossibleMoves(boardObj) {
+    let moves = [];
+    for (let i = 0; i < BOARD_SIZE; i++) {
+      for (let j = 0; j < BOARD_SIZE; j++) {
+        if (boardObj[i][j] === EMPTY) {
+          let hasNeighbor = false;
+          for (let dr = -1; dr <= 1; dr++) {
+            for (let dc = -1; dc <= 1; dc++) {
+              let r = i + dr, c = j + dc;
+              if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+                if (boardObj[r][c] !== EMPTY) {
+                  hasNeighbor = true;
+                  break;
+                }
+              }
+            }
+            if (hasNeighbor) break;
+          }
+          if (hasNeighbor) moves.push({ row: i, col: j });
+        }
+      }
+    }
+    if (moves.length === 0) {
+      moves.push({ row: Math.floor(BOARD_SIZE / 2), col: Math.floor(BOARD_SIZE / 2) });
+    }
+    return moves;
+  }
+  
+  //================ 몬테카를로 트리 탐색 (MCTS) 구현 =================
+  // MCTS 노드 클래스 (생성자 함수 형식)
+  function MCTSNode(boardState, player, move = null, parent = null) {
+    this.board = boardState;         // 현재 보드 상태 (깊은 복사가 되어야 함)
+    this.player = player;            // 이 노드를 확장할 때 돌을 둔 플레이어 (다음 수)
+    this.move = move;                // 부모 노드로부터 이 노드까지의 수 (어떤 수를 두었는지)
+    this.parent = parent;
+    this.children = [];              // 자식 노드 (가능한 수들)
+    this.wins = 0;
+    this.visits = 0;
+    
+    // 자식이 모두 확장되었는지 여부 판단
+    this.untriedMoves = getAllPossibleMoves(this.board);
+  }
+  
+  // UCT (Upper Confidence Bound 적용 공식)
+  MCTSNode.prototype.selectChild = function() {
+    // 상수 C 값은 탐색과 활용의 균형을 조절 (여기서는 1.41 사용)
+    return this.children.reduce((prev, curr) => {
+      const prevUCT = prev.wins / prev.visits + 3 * Math.sqrt(Math.log(this.visits) / prev.visits);
+      const currUCT = curr.wins / curr.visits + 3 * Math.sqrt(Math.log(this.visits) / curr.visits);
+      return (currUCT > prevUCT) ? curr : prev;
+    });
+  };
+  
+  // 자식 노드 추가 (노드 확장)
+  MCTSNode.prototype.addChild = function(move, boardAfterMove) {
+    const nextPlayer = (this.player === AI) ? PLAYER : AI;
+    const childNode = new MCTSNode(boardAfterMove, nextPlayer, move, this);
+    // 자식 추가 후 해당 수는 미사용 목록에서 삭제
+    this.untriedMoves = this.untriedMoves.filter(m => !(m.row === move.row && m.col === move.col));
+    this.children.push(childNode);
+    return childNode;
+  };
+  
+  // 시뮬레이션 (랜덤 플레이아웃)
+  function simulateRandomPlayout(boardState, player, lastMove) {
+    // boardState는 깊은 복사된 상태여야 함.
+    // 시뮬레이션을 위한 간단한 반복문: 현재판에서 무작위로 돌을 두고 승패가 결정될 때까지 진행.
+    let simBoard = boardState.map(row => row.slice());
+    let currentPlayer = player;
+    let moveMade = lastMove;
+    while (true) {
+      // 만약 마지막에 둔 수로 승리하면 결과를 반환
+      if (moveMade && isWin(simBoard, moveMade.row, moveMade.col, currentPlayer === PLAYER ? AI : PLAYER)) {
+        // 이전 플레이어가 승리
+        return currentPlayer === PLAYER ? AI : PLAYER;
+      }
+      
+      let possible = getAllPossibleMoves(simBoard);
+      // 무작위 선택
+      if (possible.length === 0) break;
+      let randIndex = Math.floor(Math.random() * possible.length);
+      let move = possible[randIndex];
+      makeMove(simBoard, move.row, move.col, currentPlayer);
+      moveMade = move;
+      currentPlayer = (currentPlayer === AI) ? PLAYER : AI;
+    }
+    // 무승부의 경우 둘 중 아무 쪽이나 반환 (여기서는 PLAYER 반환)
+    return PLAYER;
+  }
+  
+  // MCTS 메인 함수 : 지정된 iteration만큼 시뮬레이션 후 최선의 수 선택
+  function MCTSSearch(rootBoard, iterations) {
+    // 현재 보드 상태를 깊은 복사한 후 루트 노드를 생성
+    let boardCopy = rootBoard.map(row => row.slice());
+    let rootNode = new MCTSNode(boardCopy, AI);
+    
+    for (let i = 0; i < iterations; i++) {
+      let node = rootNode;
+      // 1. 선택: 자식이 존재하고 미사용 수가 없으면 UCT 기반으로 선택
+      while (node.untriedMoves.length === 0 && node.children.length > 0) {
+        node = node.selectChild();
+      }
+      
+      // 2. 확장: 미사용 수가 있으면 하나 확장
+      if (node.untriedMoves.length > 0) {
+        let move = node.untriedMoves[Math.floor(Math.random() * node.untriedMoves.length)];
+        // 새로운 보드 상태 생성 (깊은 복사)
+        let newBoard = node.board.map(row => row.slice());
+        makeMove(newBoard, move.row, move.col, node.player);
+        node = node.addChild(move, newBoard);
+      }
+      
+      // 3. 시뮬레이션: 무작위 시뮬레이션으로 게임 결과 도출
+      let result = simulateRandomPlayout(node.board, node.player, node.move);
+      
+      // 4. 역전파: 루트까지 결과를 전파
+      while (node !== null) {
+        node.visits++;
+        // AI 승리이면 win 기록, 아닐 경우 아무것도 기록하지 않음 (간단한 구현)
+        if (result === AI) {
+          node.wins++;
+        }
+        node = node.parent;
+      }
+    }
+    
+    // 루트의 자식 노드들 중 승률(승수/시도 횟수)이 가장 높은 수 선택
+    let bestChild = rootNode.children.reduce((prev, curr) => {
+      return (curr.visits > prev.visits ? curr : prev);
+    });
+    return bestChild.move;
+  }
+  
+  //================ AI 차례 처리 (MCTS 사용) =================
+  function aiTurn() {
+    $("#message").text("AI가 계산 중...");
+    setTimeout(function() {
+      // MCTS 시뮬레이션 횟수: 500번 (필요에 따라 조절)
+      let move = MCTSSearch(board, 3000);
+      if (move) {
+        makeMove(board, move.row, move.col, AI);
+        drawBoard();
+        if (isWin(board, move.row, move.col, AI)) {
+          $("#message").text("AI 승리!");
+          $("td").off("click");
+          return;
+        }
+      }
+      $("#message").text("사용자 차례 (X)");
+    }, 100);
+  }
+  
+  //================ 사용자 클릭 이벤트 처리 =================
+  $(document).ready(function(){
+    drawBoard();
+    $("#board").on("click", "td", function(){
+      let row = parseInt($(this).data("row"));
+      let col = parseInt($(this).data("col"));
+      
+      if ($("#message").text().indexOf("사용자") === -1) return;
+      if (!isValidMove(row, col)) return;
+      
+      // 사용자 턴
+      makeMove(board, row, col, PLAYER);
+      drawBoard();
+      if (isWin(board, row, col, PLAYER)) {
+        $("#message").text("사용자 승리!");
+        $("td").off("click");
+        return;
+      }
+      
+      // AI 턴으로 전환
+      aiTurn();
+    });
+  });
+</script>
+
+</body>
+</html>
