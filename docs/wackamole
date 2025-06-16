@@ -8,6 +8,9 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
 <body>
+    <a href='/'>홈</a>
+    <a href='/omok.html' style='margin-left:10px;'>오목</a>
+    <a href='/wackamole.html' style='margin-left:10px;'>두더지잡기</a>
     <div id="game-container">
         <h1>두더지 잡기 게임</h1>
         <div id="score-board">점수: <span id="score">0</span></div>
