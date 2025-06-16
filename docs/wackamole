@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>두더지 잡기 게임</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+</head>
+<body>
+    <div id="game-container">
+        <h1>두더지 잡기 게임</h1>
+        <div id="score-board">점수: <span id="score">0</span></div>
+        <div id="game-board">
+            <div class="hole" id="hole-1"></div>
+            <div class="hole" id="hole-2"></div>
+            <div class="hole" id="hole-3"></div>
+            <div class="hole" id="hole-4"></div>
+            <div class="hole" id="hole-5"></div>
+            <div class="hole" id="hole-6"></div>
+            <div class="hole" id="hole-7"></div>
+            <div class="hole" id="hole-8"></div>
+            <div class="hole" id="hole-9"></div>
+        </div>
+        <button id="start-button">게임 시작</button>
+        <button id="stop-button">게임 중지</button>
+    </div>
+    <script>
+        $(document).ready(function() {
+            let score = 0;
+            let gameInterval; // 두더지가 나타나는 간격을 제어할 변수
+            let moleTimeout; // 두더지가 사라지는 타이머를 제어할 변수
+            let isGameRunning = false;
+        
+            // 점수 업데이트 함수
+            function updateScore() {
+                $('#score').text(score);
+            }
+        
+            // 두더지를 랜덤한 구멍에 나타나게 하는 함수
+            function showMole() {
+                // 이미 나타난 두더지가 있다면 숨김
+                $('.mole').remove();
+        
+                const $holes = $('.hole');
+                const randomIndex = Math.floor(Math.random() * $holes.length);
+                const $randomHole = $holes.eq(randomIndex);
+        
+                // 두더지 요소 생성
+                const $mole = $('<div>').addClass('mole');
+                $randomHole.append($mole);
+        
+                // 두더지가 올라오는 애니메이션
+                setTimeout(() => {
+                    $mole.addClass('up');
+                }, 50); // 약간의 딜레이를 주어 transition이 적용되도록
+        
+                // 두더지 클릭 이벤트
+                $mole.on('click', function() {
+                    if (isGameRunning) {
+                        score++;
+                        updateScore();
+                        $(this).removeClass('up').remove(); // 두더지 잡으면 즉시 사라지게
+                        clearTimeout(moleTimeout); // 현재 두더지 사라지는 타이머 초기화
+                        // 다음 두더지 바로 나타나게 (선택 사항)
+                        if (isGameRunning) {
+                            moleTimeout = setTimeout(showMole, getRandomTime(1000, 1500)); // 다음 두더지 대기 시간
+                        }
+                    }
+                });
+        
+                // 일정 시간 후 두더지가 자동으로 사라지도록
+                moleTimeout = setTimeout(() => {
+                    $mole.removeClass('up');
+                    // 두더지가 사라진 후 잠시 기다렸다가 다음 두더지 나타남
+                    if (isGameRunning) {
+                        gameInterval = setTimeout(showMole, getRandomTime(800, 1200)); // 다음 두더지 나타나는 간격
+                    }
+                }, getRandomTime(1000, 2000)); // 두더지가 화면에 머무는 시간
+            }
+        
+            // 최소/최대 시간 사이의 랜덤 시간 반환 함수
+            function getRandomTime(min, max) {
+                return Math.random() * (max - min) + min;
+            }
+        
+            // 게임 시작 함수
+            $('#start-button').on('click', function() {
+                if (!isGameRunning) {
+                    isGameRunning = true;
+                    score = 0;
+                    updateScore();
+                    // 첫 두더지 나타나게 함
+                    gameInterval = setTimeout(showMole, getRandomTime(500, 1000));
+                    $(this).prop('disabled', true); // 시작 버튼 비활성화
+                    $('#stop-button').prop('disabled', false); // 중지 버튼 활성화
+                }
+            });
+        
+            // 게임 중지 함수
+            $('#stop-button').on('click', function() {
+                if (isGameRunning) {
+                    isGameRunning = false;
+                    clearTimeout(gameInterval); // 다음 두더지 나타나는 타이머 중지
+                    clearTimeout(moleTimeout); // 현재 두더지 사라지는 타이머 중지
+                    $('.mole').removeClass('up').remove(); // 모든 두더지 숨김
+                    $('#start-button').prop('disabled', false); // 시작 버튼 활성화
+                    $(this).prop('disabled', true); // 중지 버튼 비활성화
+                    alert('게임 종료! 당신의 점수는 ' + score + '점입니다!');
+                }
+            });
+        
+            // 초기 상태 설정
+            $('#stop-button').prop('disabled', true);
+        });
+    </script>
+</body>
+</html>
